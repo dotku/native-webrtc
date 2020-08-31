@@ -10,6 +10,50 @@ const Room = (props) => {
     const userStream = useRef();
 
     useEffect(() => {
+        function createPeer(userID) {
+            const peer = new RTCPeerConnection({
+                iceServers: [
+                    {
+                        urls: "stun:stun.stunprotocol.org"
+                    },
+                    {
+                        urls: 'turn:numb.viagenie.ca',
+                        credential: 'muazkh',
+                        username: 'webrtc@live.com'
+                    },
+                ]
+            });
+    
+            peer.onicecandidate = handleICECandidateEvent;
+            peer.ontrack = handleTrackEvent;
+            peer.onnegotiationneeded = () => handleNegotiationNeededEvent(userID);
+    
+            return peer;
+        }
+        function handleRecieveCall(incoming) {
+            peerRef.current = createPeer();
+            const desc = new RTCSessionDescription(incoming.sdp);
+            peerRef.current.setRemoteDescription(desc).then(() => {
+                userStream.current.getTracks().forEach(track => peerRef.current.addTrack(track, userStream.current));
+            }).then(() => {
+                return peerRef.current.createAnswer();
+            }).then(answer => {
+                return peerRef.current.setLocalDescription(answer);
+            }).then(() => {
+                const payload = {
+                    target: incoming.caller,
+                    caller: socketRef.current.id,
+                    sdp: peerRef.current.localDescription
+                }
+                socketRef.current.emit("answer", payload);
+            })
+        }
+
+        function callUser(userID) {
+            peerRef.current = createPeer(userID);
+            userStream.current.getTracks().forEach(track => peerRef.current.addTrack(track, userStream.current));
+        }
+
         navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(stream => {
             userVideo.current.srcObject = stream;
             userStream.current = stream;
@@ -33,33 +77,7 @@ const Room = (props) => {
             socketRef.current.on("ice-candidate", handleNewICECandidateMsg);
         });
 
-    }, []);
-
-    function callUser(userID) {
-        peerRef.current = createPeer(userID);
-        userStream.current.getTracks().forEach(track => peerRef.current.addTrack(track, userStream.current));
-    }
-
-    function createPeer(userID) {
-        const peer = new RTCPeerConnection({
-            iceServers: [
-                {
-                    urls: "stun:stun.stunprotocol.org"
-                },
-                {
-                    urls: 'turn:numb.viagenie.ca',
-                    credential: 'muazkh',
-                    username: 'webrtc@live.com'
-                },
-            ]
-        });
-
-        peer.onicecandidate = handleICECandidateEvent;
-        peer.ontrack = handleTrackEvent;
-        peer.onnegotiationneeded = () => handleNegotiationNeededEvent(userID);
-
-        return peer;
-    }
+    }, [props]);
 
     function handleNegotiationNeededEvent(userID) {
         peerRef.current.createOffer().then(offer => {
@@ -74,24 +92,7 @@ const Room = (props) => {
         }).catch(e => console.log(e));
     }
 
-    function handleRecieveCall(incoming) {
-        peerRef.current = createPeer();
-        const desc = new RTCSessionDescription(incoming.sdp);
-        peerRef.current.setRemoteDescription(desc).then(() => {
-            userStream.current.getTracks().forEach(track => peerRef.current.addTrack(track, userStream.current));
-        }).then(() => {
-            return peerRef.current.createAnswer();
-        }).then(answer => {
-            return peerRef.current.setLocalDescription(answer);
-        }).then(() => {
-            const payload = {
-                target: incoming.caller,
-                caller: socketRef.current.id,
-                sdp: peerRef.current.localDescription
-            }
-            socketRef.current.emit("answer", payload);
-        })
-    }
+
 
     function handleAnswer(message) {
         const desc = new RTCSessionDescription(message.sdp);
